@@ -1,7 +1,8 @@
-# Builds the image on every pull request and runs Red Hat's preflight checks on
-# it, so a change that would fail certification fails here. The image goes to
-# ttl.sh, an anonymous registry that drops it after an hour; nothing is pushed
-# to a real registry.
+# Builds the image on every pull request, pushes it to Quay as pr-<number>-<sha>,
+# and runs Red Hat's preflight checks on it, so a change that would fail
+# certification fails here. The tag never collides with a release tag or latest.
+#
+# Requires the QUAY_USERNAME and QUAY_PASSWORD repository secrets.
 name: "Preflight"
 
 on:
@@ -10,6 +11,9 @@ on:
 permissions:
   contents: read
 
+env:
+  IMAGE: quay.io/simplyblock-io/numa-resource-plugin
+
 jobs:
   preflight:
     runs-on: ubuntu-latest
@@ -17,19 +21,32 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
+      - name: Compute tag
+        id: tag
+        env:
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: echo "tag=pr-${{ github.event.pull_request.number }}-${SHA::12}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to Quay.io
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
-      - name: Build and push to ttl.sh
+      - name: Build and push
         id: build
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ttl.sh/numa-resource-plugin-${{ github.sha }}:1h
+          tags: ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
           build-args: |
-            VERSION=pr-${{ github.event.pull_request.number }}
+            VERSION=${{ steps.tag.outputs.tag }}
 
       - name: Run Red Hat preflight container checks
-        run: hack/preflight.sh "ttl.sh/numa-resource-plugin-${{ github.sha }}@${{ steps.build.outputs.digest }}"
+        run: hack/preflight.sh "${IMAGE}@${{ steps.build.outputs.digest }}"
