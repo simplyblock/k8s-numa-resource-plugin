@@ -3,7 +3,8 @@
 BINARY_NAME=numa-resource-plugin
 IMAGE_NAME=numa-resource-plugin
 REGISTRY=registry.local:5000
-VERSION?=latest
+# A unique tag per build: certification refuses an image tagged only latest.
+VERSION?=$(shell git describe --tags --always --dirty)
 
 GO=go
 GOFLAGS=-ldflags="-s -w"
@@ -39,7 +40,7 @@ vet:
 
 ## Docker
 docker-build: build-linux
-	docker build -t $(IMAGE_NAME):$(VERSION) .
+	docker build --build-arg VERSION=$(VERSION) -t $(IMAGE_NAME):$(VERSION) .
 
 docker-push: docker-build
 	docker tag $(IMAGE_NAME):$(VERSION) $(REGISTRY)/$(IMAGE_NAME):$(VERSION)
